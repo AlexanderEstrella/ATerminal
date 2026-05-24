@@ -2,104 +2,89 @@
 
 You're at a coffee shop. Your build is running on your home machine. You want to check it from your phone.
 
-ATerminal is a self-hosted terminal server that runs on your machine and exposes a full xterm.js shell to any browser — no cloud, no subscriptions, just your machine behind your own access control. Works over LAN, Tailscale (recommended — stable HTTPS URL that never changes), or any Cloudflare tunnel. Installs as a PWA on iPhone and Android. Supports multiple named terminal agents across multiple machines.
+ATerminal is a self-hosted terminal server that runs on your machine and exposes a full xterm.js shell to any browser — no cloud, no subscriptions, just your machine behind your own access control. Works over Tailscale (recommended) or your local network. Installs as a PWA on iPhone and Android. Supports multiple named terminal agents across multiple machines.
 
-## One-Command Setup
+## Requirements
 
-From a GitHub checkout on Windows:
+- [Node.js](https://nodejs.org) 22+
+- [Tailscale](https://tailscale.com/download) installed and logged in (recommended for phone access)
+
+## Setup
+
+### Recommended: Tailscale (stable private HTTPS URL)
+
+Tailscale gives you a permanent `https://<your-machine>.ts.net` URL that never changes, is only reachable by devices on your tailnet, and requires no port forwarding or DNS config.
+
+Install Tailscale if you haven't:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File setup.ps1
+# Windows
+winget install Tailscale.Tailscale
 ```
-
-From a GitHub checkout on macOS/Linux:
-
 ```bash
-npm install && npm start
+# macOS
+brew install tailscale
 ```
 
-From npm after publish:
+Then install and start ATerminal:
 
 ```bash
 npm install -g @aterminal/aterminal
-aterminal server setup
+aterminal server setup --tailscale
 ```
 
-For same-network phone access, use LAN mode:
+Or from a GitHub checkout:
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File setup.ps1
+```
+```bash
+# macOS/Linux
+npm install && npm run setup:tailscale
+```
+
+This will:
+1. Initialize the server on first run (prompts for an admin password)
+2. Start the server
+3. Start `tailscale serve` to proxy it over HTTPS
+4. Auto-enroll your local machine as a terminal agent
+5. Print your permanent URL and a QR code
+
+Open the URL, sign in, and scan **Pair Device** → **Send Web UI Link** from your phone to install the PWA.
+
+### Local network only (no Tailscale)
 
 ```bash
 aterminal server setup --lan
 ```
 
-For a stable private HTTPS URL via Tailscale (recommended — URL never changes, only reachable by devices on your tailnet):
+Accessible from any device on the same Wi-Fi. No HTTPS — use this for quick local testing, not for leaving up permanently.
 
-**Both the server computer and any client devices must have Tailscale installed and be logged in to the same account.**
+### Advanced: custom public URL
 
-Install Tailscale on Windows:
-```powershell
-winget install Tailscale.Tailscale
-```
-
-Then start ATerminal with Tailscale Serve:
-```bash
-aterminal server setup --tailscale
-```
-
-Or from this checkout:
-```bash
-npm run setup:tailscale
-```
-
-This reads your machine's stable `https://<name>.ts.net` hostname from `tailscale status`, starts `tailscale serve` to proxy port 3000 with HTTPS, then prints the URL and QR code. The URL is permanent — it is your machine's Tailscale hostname and does not change between restarts. Any device on your tailnet can open it in Safari and use **Add to Home Screen** to install it as a PWA.
-
-Access is private — only devices logged in to your Tailscale account can reach it. Tailscale must be installed and running on the server machine.
-
-For an automatic secure Cloudflare quick tunnel:
-
-```powershell
-winget install --id Cloudflare.cloudflared
-```
-
-On macOS, install `cloudflared` with `brew install cloudflared`.
+If you have your own domain, reverse proxy, or VPN:
 
 ```bash
-aterminal server setup --cloudflare
+aterminal server setup --public-url https://terminal.yourdomain.com
 ```
 
-From this checkout, you can also run:
+## Open the Web UI From a Phone
 
-```bash
-npm run setup:cloudflare
-```
-
-This starts `cloudflared tunnel --url http://127.0.0.1:<port>`, waits for the `https://*.trycloudflare.com` URL, then prints that link and a QR code. The quick tunnel URL is temporary and changes when the tunnel restarts.
-
-For a stable custom Cloudflare Tunnel hostname, Tailscale, reverse proxy, or other public HTTPS URL:
-
-```bash
-aterminal server setup --public-url https://terminal.example.com
-```
-
-`server setup` initializes the server if needed, starts it, prints the web URL, and prints a QR code in the terminal. After signing in, use **Pair Device** in the web UI to scan QRs for opening the UI on a phone and enrolling terminal agents.
-
-## Open The Web UI From A Phone
-
-1. Start the server with a URL the phone can reach, such as `aterminal server setup --lan`.
+1. Start the server with `--tailscale` (or `--lan` for same-network).
 2. Sign in and click **Pair Device**.
-3. Scan the **Send Web UI Link** QR or copy/share that link to the phone.
+3. Scan the **Send Web UI Link** QR or copy the link to your phone.
+4. On iPhone: tap the share button → **Add to Home Screen** to install as a PWA.
 
 ## Connect An Agent (Another Machine)
 
-An **agent** is ATerminal running on a second machine — the one that will actually host the shell sessions. Your phone's browser connects to the server; the server proxies to whichever agent you pick.
-
-The local machine is auto-enrolled as an agent on first run, so you only need this section when adding a second machine (a remote server, a dev box, a CI runner, etc.).
+An **agent** is ATerminal running on a second machine — the one that hosts the shell sessions you see in the UI. Your local machine is auto-enrolled on first run. Only follow this section to add a second machine.
 
 ### Option A — Pairing link (easiest)
 
-1. Start the server with a URL the agent machine can reach (e.g. `--tailscale` or `--public-url`).
-2. Sign in → **Pair Device** → **Generate Pairing Link**.
-3. Copy the link or QR to the agent machine and open it.
-4. It shows two commands — run them:
+1. Sign in → **Pair Device** → **Generate Pairing Link**.
+2. Send the link to the agent machine and open it.
+3. It shows two commands — run them:
 
 ```bash
 npm install -g @aterminal/aterminal
@@ -109,7 +94,7 @@ aterminal agent start
 
 ### Option B — CLI directly (scripting / automation)
 
-Generate a one-time token in the UI (**Pair Device** → **Generate Pairing Link** → copy the token from the URL), then on the agent machine:
+Copy the token from the pairing link URL, then on the agent machine:
 
 ```bash
 npm install -g @aterminal/aterminal
@@ -119,13 +104,20 @@ aterminal agent start
 
 ### Option C — Approval flow (no token)
 
-On the agent machine, run without a token and approve the request in the web UI:
-
 ```bash
 aterminal agent enroll --server https://your-server-url
 # → Waiting for admin approval in the ATerminal UI...
-# Approve in UI → then:
+# Approve in the UI, then:
 aterminal agent start
 ```
 
-Enrollment tokens are one-time use and stored hashed on the server. Remote agents require HTTPS. For local development over plain HTTP, set `ATERMINAL_ALLOW_INSECURE_REMOTE=1` before enrolling.
+Enrollment tokens are one-time use and stored hashed on the server. Remote agents require HTTPS.
+
+## Run as a Windows Service (auto-start on boot)
+
+```powershell
+# Run as Administrator
+powershell -ExecutionPolicy Bypass -File install-service.ps1
+```
+
+Requires [NSSM](https://nssm.cc) (installed automatically via winget if not found). Tailscale must be set to start on boot separately (it does by default).

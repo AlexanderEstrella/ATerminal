@@ -12,6 +12,9 @@ const { createDeviceAuthRouter } = require('./device-auth');
 function createHttpServer(db, config, audit) {
   const app = express();
 
+  // Trust the first proxy hop (Tailscale Serve, Cloudflare, etc.) so
+  // express-rate-limit can read X-Forwarded-For without throwing.
+  app.set('trust proxy', 1);
   app.disable('x-powered-by');
   app.use(securityHeaders);
   app.use(express.json({ limit: '32kb' }));
