@@ -88,26 +88,44 @@ aterminal server setup --public-url https://terminal.example.com
 2. Sign in and click **Pair Device**.
 3. Scan the **Send Web UI Link** QR or copy/share that link to the phone.
 
-## Pair A Terminal Agent
+## Connect An Agent (Another Machine)
 
-1. Start the server with a URL the other device can reach:
-   - Same-network web UI: `aterminal server setup --lan`
-   - Remote agent enrollment: `aterminal server setup --public-url https://terminal.example.com`
-2. Sign in and click **Pair Device**.
-3. Click **Generate Pairing Link**.
-4. Scan the QR or copy the pairing link and send it to the device.
-5. On that device, open the link, copy the commands, and run them.
+An **agent** is ATerminal running on a second machine — the one that will actually host the shell sessions. Your phone's browser connects to the server; the server proxies to whichever agent you pick.
 
-Remote agents should use HTTPS. For private development over plain HTTP, set `ATERMINAL_ALLOW_INSECURE_REMOTE=1` before enrolling and starting the agent.
+The local machine is auto-enrolled as an agent on first run, so you only need this section when adding a second machine (a remote server, a dev box, a CI runner, etc.).
 
-## Agent Setup
+### Option A — Pairing link (easiest)
 
-On the machine that should run terminal sessions:
+1. Start the server with a URL the agent machine can reach (e.g. `--tailscale` or `--public-url`).
+2. Sign in → **Pair Device** → **Generate Pairing Link**.
+3. Copy the link or QR to the agent machine and open it.
+4. It shows two commands — run them:
 
-1. Open ATerminal in a browser.
-2. Click **Pair Device**.
-3. Generate a pairing link.
-4. Open the link on the machine that should run terminal sessions.
-5. Copy and run the generated commands.
+```bash
+npm install -g @aterminal/aterminal
+aterminal agent enroll --server https://your-server-url --token <one-time-token>
+aterminal agent start
+```
 
-Enrollment tokens are one-time use and are stored hashed on the server.
+### Option B — CLI directly (scripting / automation)
+
+Generate a one-time token in the UI (**Pair Device** → **Generate Pairing Link** → copy the token from the URL), then on the agent machine:
+
+```bash
+npm install -g @aterminal/aterminal
+aterminal agent enroll --server https://your-server-url --token <token>
+aterminal agent start
+```
+
+### Option C — Approval flow (no token)
+
+On the agent machine, run without a token and approve the request in the web UI:
+
+```bash
+aterminal agent enroll --server https://your-server-url
+# → Waiting for admin approval in the ATerminal UI...
+# Approve in UI → then:
+aterminal agent start
+```
+
+Enrollment tokens are one-time use and stored hashed on the server. Remote agents require HTTPS. For local development over plain HTTP, set `ATERMINAL_ALLOW_INSECURE_REMOTE=1` before enrolling.
