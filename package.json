@@ -7,9 +7,9 @@
   "author": "Alexander Estrella",
   "repository": {
     "type": "git",
-    "url": "https://github.com/alexestrella/aterminal"
+    "url": "https://github.com/AlexanderEstrella/ATerminal"
   },
-  "homepage": "https://github.com/alexestrella/aterminal#readme",
+  "homepage": "https://github.com/AlexanderEstrella/ATerminal#readme",
   "bin": {
     "aterminal": "./bin/aterminal.js"
   },
