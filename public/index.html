@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ATerminal">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <title>ATerminal</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="/vendor/xterm/css/xterm.css">
+  <style>
+.device-request-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)}
+.device-request-row:last-child{border-bottom:none}
+.device-request-info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.device-platform,.device-age{font-size:12px;opacity:.6}
+.device-request-actions{display:flex;gap:6px;flex-shrink:0}
+  </style>
+</head>
+<body>
+
+<!-- ── Login Screen ──────────────────────────────────────────────────────── -->
+<div id="login-screen" class="screen active">
+  <div class="login-card">
+    <div class="logo">
+      <span class="logo-icon">AT</span>
+      <h1>ATerminal</h1>
+      <p class="tagline">Remote Terminal Platform</p>
+    </div>
+    <form id="login-form">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" autocomplete="username" autocorrect="off" autocapitalize="none" placeholder="admin" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" required>
+      </div>
+      <div id="login-error" class="error-msg hidden"></div>
+      <button type="submit" id="login-btn" class="btn btn-primary btn-full">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<div id="pairing-screen" class="screen">
+  <div class="login-card pairing-card">
+    <div class="logo">
+      <span class="logo-icon">⌨</span>
+      <h1>Pair Terminal Agent</h1>
+      <p class="tagline" id="pairing-server-label"></p>
+    </div>
+    <p class="pairing-instructions">Run these commands on the device you want to pair.</p>
+    <div class="code-block" id="pairing-command"></div>
+    <div class="pairing-actions">
+      <button class="btn btn-primary btn-full" id="copy-pairing-command-btn">Copy Commands</button>
+      <button class="btn btn-ghost btn-full" id="clear-pairing-link-btn">Open ATerminal</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Dashboard ─────────────────────────────────────────────────────────── -->
+<div id="dashboard-screen" class="screen">
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button id="menu-btn" class="icon-btn" aria-label="Menu">☰</button>
+      <span class="app-title">ATerminal</span>
+    </div>
+    <div class="topbar-right">
+      <span id="status-dot" class="status-dot" title="Disconnected"></span>
+      <button id="new-session-btn" class="btn btn-sm btn-primary">+ Session</button>
+      <button id="enrollment-btn" class="btn btn-sm btn-ghost hidden">Pair Device <span id="pending-badge" class="hidden" style="background:#f0a500;color:#000;border-radius:10px;padding:1px 6px;font-size:11px;margin-left:4px;"></span></button>
+      <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
+      <button id="logout-btn" class="icon-btn" aria-label="Logout">⏏</button>
+    </div>
+  </header>
+
+  <!-- Main layout -->
+  <div class="layout">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <nav>
+
+        <!-- Section 1: Sessions -->
+        <div class="nav-section">
+          <div class="nav-label">
+            Sessions
+            <button id="new-session-btn-sidebar" class="btn btn-sm btn-primary">+ New</button>
+          </div>
+          <input id="session-search" type="text" class="session-search-input" placeholder="Filter sessions…" autocorrect="off" autocapitalize="none" autocomplete="off" spellcheck="false">
+          <div id="session-list" class="session-list">
+            <div class="empty-state">No sessions yet.</div>
+          </div>
+        </div>
+
+        <!-- Section 2: Machines -->
+        <div class="nav-section">
+          <div class="nav-label">Machines</div>
+          <div id="agent-list" class="agent-list">
+            <div class="empty-state">Loading machines…</div>
+          </div>
+        </div>
+
+      </nav>
+    </aside>
+
+    <!-- Main area -->
+    <main class="main">
+      <!-- Welcome pane -->
+      <div id="welcome-pane" class="welcome-pane">
+        <div class="welcome-content">
+          <div class="welcome-icon">⌨</div>
+          <h2>Select or create a session</h2>
+          <p>Pick a session from the sidebar, or create a new one. Enroll machines via <strong>Pair Device</strong> in the top bar.</p>
+          <div class="welcome-actions">
+            <button class="btn btn-primary" id="welcome-new-session-btn">+ New Session</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Terminal area -->
+      <div id="terminal-area" class="terminal-area hidden">
+        <div id="tab-bar" class="tab-bar"></div>
+        <section id="session-context-panel" class="session-context-panel hidden" aria-live="polite">
+          <div class="session-context-summary">
+            <div class="session-context-title-wrap">
+              <div id="session-context-title" class="session-context-title">No session selected</div>
+              <div id="session-context-meta" class="session-context-meta"></div>
+            </div>
+            <div class="session-context-actions">
+              <button id="session-context-refresh" class="btn btn-sm btn-ghost" type="button">Refresh</button>
+              <button id="session-context-copy-output" class="btn btn-sm btn-ghost" type="button">Copy Output</button>
+              <button id="session-context-copy" class="btn btn-sm btn-ghost" type="button">Copy Context</button>
+              <button id="session-context-ctrlc" class="btn btn-sm btn-ghost btn-ctrlc" type="button" title="Send Ctrl+C — interrupt running process">⌃C</button>
+              <button id="session-context-watch" class="btn btn-sm btn-ghost" type="button" title="Notify me when this session finishes">🔔</button>
+              <button id="session-context-kill" class="btn btn-sm btn-ghost" type="button">Kill</button>
+              <button id="session-context-toggle" class="icon-btn" type="button" aria-label="Hide session context">-</button>
+            </div>
+          </div>
+          <pre id="session-context-output" class="session-context-output">No recent output.</pre>
+        </section>
+        <div id="terminals-container" class="terminals-container"></div>
+        <!-- Mobile input bar -->
+        <div id="mobile-input-bar" class="mobile-input-bar">
+          <div class="mobile-row mobile-row-top">
+            <input id="mobile-text-input" type="text" autocorrect="off" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="Tap to type…">
+            <button class="kbd-btn kbd-btn-stop" data-key="&#x03;" title="Ctrl+C — interrupt running process">⌃C</button>
+            <button class="kbd-btn" id="composer-toggle-btn" title="Command composer">Compose</button>
+            <button class="kbd-btn" id="font-decrease-btn" title="Smaller text">A-</button>
+            <button class="kbd-btn" id="font-increase-btn" title="Larger text">A+</button>
+            <button class="kbd-btn" id="scroll-bottom-btn" title="Scroll to bottom">↓↓</button>
+            <button class="kbd-btn" id="snippets-toggle-btn" title="Command snippets">⌘</button>
+          </div>
+          <div class="mobile-row mobile-row-keys">
+            <button class="kbd-btn" data-key="&#x09;">Tab</button>
+            <button class="kbd-btn" data-key="&#x1b;">Esc</button>
+            <button class="kbd-btn" data-key="&#x1b;[D">←</button>
+            <button class="kbd-btn" data-key="&#x1b;[C">→</button>
+            <button class="kbd-btn" data-key="&#x1b;[A">↑</button>
+            <button class="kbd-btn" data-key="&#x1b;[B">↓</button>
+            <button class="kbd-btn" data-key="&#x03;">Ctrl+C</button>
+            <button class="kbd-btn" data-key="&#x1a;">Ctrl+Z</button>
+            <button class="kbd-btn" data-key="&#x0c;">Ctrl+L</button>
+            <button class="kbd-btn" data-key="&#x0d;">Enter</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ── New Session Modal ──────────────────────────────────────────────────── -->
+<div id="session-modal" class="modal hidden">
+  <div class="modal-backdrop" id="session-modal-backdrop"></div>
+  <div class="modal-card session-modal-card">
+    <h3>New Session</h3>
+    <form id="new-session-form">
+      <div class="field">
+        <label for="session-agent">Agent</label>
+        <select id="session-agent" required>
+          <option value="">Select an online agent…</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="session-shell">Shell</label>
+        <select id="session-shell" required>
+          <option value="">Select agent first…</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="session-name">Name (optional)</label>
+        <input type="text" id="session-name" placeholder="My Session" autocorrect="off">
+      </div>
+      <div class="field location-picker" id="session-location-picker">
+        <div class="location-header">
+          <label for="session-cwd">Working directory</label>
+          <button type="button" id="session-favorite-current" class="icon-btn favorite-toggle" aria-label="Add current path to favorites" title="Add current path to favorites">&#9734;</button>
+        </div>
+        <div class="path-input-row">
+          <input type="text" id="session-cwd" placeholder="Agent default or full path" autocorrect="off" autocapitalize="none" spellcheck="false">
+          <button type="button" id="session-cwd-browse" class="btn btn-sm btn-ghost">Browse</button>
+        </div>
+        <div class="location-browser-controls">
+          <button type="button" id="session-location-up" class="btn btn-sm btn-ghost">Up</button>
+          <div id="session-location-current" class="location-current">Select an agent to browse locations.</div>
+        </div>
+        <div id="session-location-browser" class="location-list location-browser-list">
+          <div class="empty-state">Select an agent to browse locations.</div>
+        </div>
+        <div class="location-saved-grid">
+          <div class="location-saved-section">
+            <div class="location-section-title">Recent</div>
+            <div id="session-location-recent" class="location-list">
+              <div class="empty-state">Select an agent first.</div>
+            </div>
+          </div>
+          <div class="location-saved-section">
+            <div class="location-section-title">Favorites</div>
+            <div id="session-location-favorites" class="location-list">
+              <div class="empty-state">Select an agent first.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="session-modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Enrollment Modal ──────────────────────────────────────────────────── -->
+<div id="enrollment-modal" class="modal hidden">
+  <div class="modal-backdrop" id="enrollment-modal-backdrop"></div>
+  <div class="modal-card modal-card-wide">
+    <h3>Pair Device</h3>
+    <div class="pair-section" id="pending-devices-section" style="display:none">
+      <h4>Pending Approvals</h4>
+      <div id="pending-devices-list"></div>
+    </div>
+    <div class="pair-section">
+      <h4>Send Web UI Link</h4>
+      <div class="qr-row">
+        <div class="qr-box" id="browser-qr-box">
+          <span class="empty-state">Loading QR...</span>
+        </div>
+        <div class="pair-copy">
+          <div class="code-block" id="browser-url-block"></div>
+          <div class="enroll-url-row">
+            <button class="btn btn-sm btn-ghost copy-btn" id="copy-browser-url-btn">Copy Link</button>
+            <button class="btn btn-sm btn-ghost copy-btn" id="share-browser-url-btn">Share Link</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="pair-section">
+      <h4>Pair Terminal Agent</h4>
+    <div id="enrollment-token-area">
+      <button id="generate-token-btn" class="btn btn-primary">Generate Pairing Link</button>
+    </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="enrollment-modal-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Snippets panel ──────────────────────────────────────────────────────── -->
+<div id="snippets-panel" class="snippets-panel hidden">
+  <div class="snippets-header">
+    <span>Command Snippets</span>
+    <button id="snippets-close-btn" class="icon-btn">✕</button>
+  </div>
+  <div id="snippets-list" class="snippets-list"></div>
+  <div class="snippets-add">
+    <input id="snippet-label-input" type="text" placeholder="Label (e.g. Git status)" autocorrect="off" autocapitalize="none">
+    <input id="snippet-cmd-input" type="text" placeholder="Command (e.g. git status)" autocorrect="off" autocapitalize="none" spellcheck="false">
+    <button id="snippet-add-btn" class="btn btn-primary btn-sm btn-full">+ Add Snippet</button>
+  </div>
+</div>
+
+<div id="command-composer-panel" class="command-composer-panel hidden">
+  <div class="snippets-header">
+    <span>Command Composer</span>
+    <button id="composer-close-btn" class="icon-btn">x</button>
+  </div>
+  <textarea id="composer-input" autocorrect="off" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="Type or dictate a command, review it, then run."></textarea>
+  <div id="composer-status" class="composer-status"></div>
+  <div class="composer-actions">
+    <button id="composer-mic-btn" class="btn btn-sm btn-ghost" type="button">Mic</button>
+    <button id="composer-clear-btn" class="btn btn-sm btn-ghost" type="button">Clear</button>
+    <button id="composer-type-btn" class="btn btn-sm btn-ghost" type="button">Type</button>
+    <button id="composer-run-btn" class="btn btn-sm btn-primary" type="button">Run</button>
+  </div>
+</div>
+
+<!-- ── Settings Modal ─────────────────────────────────────────────────────── -->
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-backdrop" id="settings-modal-backdrop"></div>
+  <div class="modal-card">
+    <h3>Settings</h3>
+    <h4 style="margin: 16px 0 10px; font-size: 14px; color: var(--text-muted);">Change Password</h4>
+    <form id="change-password-form">
+      <div class="field">
+        <label>Current Password</label>
+        <input type="password" id="current-password" autocomplete="current-password" required>
+      </div>
+      <div class="field">
+        <label>New Password</label>
+        <input type="password" id="new-password" autocomplete="new-password" minlength="12" required>
+      </div>
+      <div class="field">
+        <label>Confirm New Password</label>
+        <input type="password" id="confirm-password" autocomplete="new-password" required>
+      </div>
+      <div id="settings-error" class="error-msg hidden"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="settings-modal-close">Cancel</button>
+        <button type="submit" class="btn btn-primary">Change Password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="/vendor/xterm/lib/xterm.js"></script>
+<script src="/vendor/xterm-addon-fit/lib/addon-fit.js"></script>
+<script src="/vendor/xterm-addon-web-links/lib/addon-web-links.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

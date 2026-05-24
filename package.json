@@ -1,0 +1,47 @@
+{
+  "name": "@aterminal/aterminal",
+  "version": "0.1.0",
+  "description": "Self-hosted remote terminal platform for browser-controlled terminal sessions and AI agents",
+  "license": "AGPL-3.0-or-later",
+  "keywords": ["terminal", "self-hosted", "tailscale", "pwa", "remote-access", "devtools", "shell", "xterm"],
+  "author": "Alexander Estrella",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alexestrella/aterminal"
+  },
+  "homepage": "https://github.com/alexestrella/aterminal#readme",
+  "bin": {
+    "aterminal": "./bin/aterminal.js"
+  },
+  "main": "./src/index.js",
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup",
+    "setup": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup",
+    "setup:lan": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup --lan",
+    "setup:cloudflare": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup --cloudflare",
+    "setup:tailscale": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup --tailscale",
+    "server:start": "node --no-warnings=ExperimentalWarning bin/aterminal.js server start",
+    "dev": "nodemon --exec \"node --no-warnings=ExperimentalWarning\" bin/aterminal.js server start"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
+    "bcryptjs": "^2.4.3",
+    "commander": "^12.1.0",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "node-pty": "^1.0.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.7.5",
+    "winston": "^3.13.0",
+    "ws": "^8.17.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
