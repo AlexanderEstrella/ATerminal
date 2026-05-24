@@ -39,7 +39,9 @@ function createBrowserWs(httpServer, db, config, agentGateway, audit) {
         const attachedSessions = new Map();
         audit.log('socket_connected', socket.user.username, { socketId: socket.id });
         // terminal:attach — browser wants to receive output for an existing session
-        socket.on('terminal:attach', (sessionId) => {
+        socket.on('terminal:attach', (payload) => {
+            const sessionId = typeof payload === 'string' ? payload : payload?.sessionId;
+            const noReplay = typeof payload === 'object' && payload?.noReplay === true;
             const session = getSession(db, sessionId);
             if (!session) {
                 socket.emit('terminal:error', { sessionId, message: 'Session not found' });
@@ -59,10 +61,13 @@ function createBrowserWs(httpServer, db, config, agentGateway, audit) {
             });
             attachedSessions.set(sessionId, callbackId);
             audit.log('terminal_attach', socket.user.username, { sessionId });
-            // Replay buffered output so the terminal isn't blank on re-attach
-            const replayBuffer = agentGateway.getOutputBuffer(sessionId);
-            if (replayBuffer.length > 0) {
-                socket.emit('terminal:output', { sessionId, data: replayBuffer.join('') });
+            // Replay buffered output so the terminal isn't blank on first attach.
+            // Skip replay when the client already has the content (reconnect case).
+            if (!noReplay) {
+                const replayBuffer = agentGateway.getOutputBuffer(sessionId);
+                if (replayBuffer.length > 0) {
+                    socket.emit('terminal:output', { sessionId, data: replayBuffer.join('') });
+                }
             }
         });
         // terminal:input — forward keystrokes to the agent

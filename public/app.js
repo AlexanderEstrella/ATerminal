@@ -5,6 +5,8 @@ let currentUser = null;
 let socket = null;
 let activeSessionId = null;
 const openTerminals = new Map(); // sessionId → { term, fitAddon, pane, tab }
+const replayedSessions = new Set();
+let visibleTabIds = []; // IDs of the ≤3 tabs currently shown; rest live in the overflow dropdown
 const watchedSessions = new Set(); // sessionIds to notify on exit
 let agentData = []; // cached agents array
 let sessionData = []; // cached sessions array
@@ -207,7 +209,9 @@ function connectSocket() {
     socket = io({ auth: { token } });
     let everConnected = false;
     socket.on('connect', () => {
-        openTerminals.forEach((_, sessionId) => socket.emit('terminal:attach', sessionId));
+        openTerminals.forEach((_, sessionId) => {
+            socket.emit('terminal:attach', { sessionId, noReplay: replayedSessions.has(sessionId) });
+        });
         updateStatusDot();
         if (everConnected && openTerminals.size > 0) {
             openTerminals.forEach((entry) => {
@@ -538,6 +542,40 @@ function updateWatchButton() {
     const watching = activeSessionId && watchedSessions.has(activeSessionId);
     btn.classList.toggle('btn-watching', watching);
     btn.title = watching ? 'Stop watching (notification on exit)' : 'Notify me when this session finishes';
+}
+function showTerminalContextMenu(x, y, term, sessionId) {
+    document.querySelector('.term-context-menu')?.remove();
+    const sel = term.getSelection();
+    const menu = document.createElement('div');
+    menu.className = 'term-context-menu';
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'term-ctx-item';
+    copyBtn.textContent = 'Copy';
+    if (!sel)
+        copyBtn.disabled = true;
+    const pasteBtn = document.createElement('button');
+    pasteBtn.className = 'term-ctx-item';
+    pasteBtn.textContent = 'Paste';
+    menu.appendChild(copyBtn);
+    menu.appendChild(pasteBtn);
+    menu.style.left = `${Math.min(x, window.innerWidth - 160)}px`;
+    menu.style.top = `${Math.min(y, window.innerHeight - 80)}px`;
+    document.body.appendChild(menu);
+    copyBtn.addEventListener('click', () => { copyText(sel); menu.remove(); });
+    pasteBtn.addEventListener('click', () => {
+        navigator.clipboard.readText()
+            .then(text => { if (text)
+            sendTerminalInput(sessionId, text); })
+            .catch(() => showToast('Clipboard access denied', 'error', 2000));
+        menu.remove();
+    });
+    const dismiss = (e) => {
+        if (!menu.contains(e.target)) {
+            menu.remove();
+            document.removeEventListener('pointerdown', dismiss, true);
+        }
+    };
+    setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 0);
 }
 function copyTerminalOutput() {
     if (!activeSessionId)
@@ -1033,9 +1071,9 @@ function openSession(session) {
         activateTab(session.id);
         return;
     }
-    // Create tab
+    // Create tab — starts hidden; activateTab → ensureTabVisible will reveal it
     const tab = document.createElement('div');
-    tab.className = 'tab';
+    tab.className = 'tab tab-hidden';
     tab.dataset.id = session.id;
     tab.innerHTML = `<span>${escHtml(session.name || session.shell || 'Session')}</span><span class="tab-close" data-id="${session.id}">✕</span>`;
     tab.addEventListener('click', (e) => {
@@ -1077,6 +1115,25 @@ function openSession(session) {
     term.registerLinkProvider(makeLocalhostLinkProvider(term));
     term.loadAddon(linksAddon);
     term.open(pane);
+    // Ctrl+Shift+C = copy selection, Ctrl+Shift+V = paste from clipboard
+    term.attachCustomKeyEventHandler((e) => {
+        if (e.type !== 'keydown')
+            return true;
+        if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+            const sel = term.getSelection();
+            if (sel)
+                copyText(sel);
+            return false;
+        }
+        if (e.ctrlKey && e.shiftKey && e.key === 'V') {
+            navigator.clipboard.readText()
+                .then(text => { if (text)
+                sendTerminalInput(session.id, text); })
+                .catch(() => { });
+            return false;
+        }
+        return true;
+    });
     // Update tab title when the shell sends an OSC title sequence
     term.onTitleChange((title) => {
         if (title) {
@@ -1096,12 +1153,38 @@ function openSession(session) {
     pane.addEventListener('pointerdown', () => {
         requestAnimationFrame(() => term.focus());
     });
+    // Intercept wheel events before xterm's handlers (capture phase) so scroll
+    // works reliably across all browsers, including cases where xterm's internal
+    // wheel listener doesn't fire due to canvas event propagation quirks.
+    pane.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const lines = e.deltaMode === 1 ? e.deltaY
+            : e.deltaMode === 2 ? (e.deltaY > 0 ? term.rows : -term.rows)
+                : Math.round(e.deltaY / 20) || (e.deltaY > 0 ? 1 : -1);
+        term.scrollLines(lines);
+    }, { passive: false, capture: true });
+    // Touch scroll for mobile devices
+    let _touchScrollY = 0;
+    pane.addEventListener('touchstart', (e) => { _touchScrollY = e.touches[0].clientY; }, { passive: true });
+    pane.addEventListener('touchmove', (e) => {
+        const dy = _touchScrollY - e.touches[0].clientY;
+        _touchScrollY = e.touches[0].clientY;
+        const lines = Math.round(dy / 15);
+        if (lines)
+            term.scrollLines(lines);
+    }, { passive: true });
+    // Right-click context menu with Copy / Paste
+    pane.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showTerminalContextMenu(e.clientX, e.clientY, term, session.id);
+    });
     openTerminals.set(session.id, { term, fitAddon, pane, tab, session });
     // Observe resize
     const resizeObserver = new ResizeObserver(() => fitTerminal(session.id));
     resizeObserver.observe(pane);
     if (socket?.connected) {
-        socket.emit('terminal:attach', session.id);
+        socket.emit('terminal:attach', { sessionId: session.id, noReplay: replayedSessions.has(session.id) });
+        replayedSessions.add(session.id);
     }
     activateTab(session.id);
 }
@@ -1152,6 +1235,7 @@ function buildPreviewUrl(port) {
     }
 }
 function activateTab(sessionId) {
+    ensureTabVisible(sessionId);
     activeSessionId = sessionId;
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.id === sessionId));
     document.querySelectorAll('.session-item').forEach((t) => t.classList.toggle('active', t.dataset.id === sessionId));
@@ -1165,6 +1249,7 @@ function activateTab(sessionId) {
         });
     }
     updateWatchButton();
+    refreshTabOverflow();
 }
 function fitTerminal(sessionId) {
     const entry = openTerminals.get(sessionId);
@@ -1181,11 +1266,23 @@ function closeTab(sessionId) {
     const entry = openTerminals.get(sessionId);
     if (!entry)
         return;
+    const wasVisible = visibleTabIds.includes(sessionId);
+    visibleTabIds = visibleTabIds.filter(id => id !== sessionId);
     socket?.emit('terminal:detach', sessionId);
     entry.term.dispose();
     entry.pane.remove();
     entry.tab.remove();
     openTerminals.delete(sessionId);
+    replayedSessions.delete(sessionId);
+    if (wasVisible) {
+        // Pull an overflow session into the vacated visible slot
+        const nextHidden = [...openTerminals.keys()].find(id => !visibleTabIds.includes(id));
+        if (nextHidden) {
+            visibleTabIds.push(nextHidden);
+            document.querySelector(`.tab[data-id="${nextHidden}"]`)?.classList.remove('tab-hidden');
+        }
+    }
+    refreshTabOverflow();
     if (activeSessionId === sessionId) {
         activeSessionId = null;
         const remaining = [...openTerminals.keys()];
@@ -1197,6 +1294,68 @@ function closeTab(sessionId) {
             hide($('#terminal-area'));
         }
     }
+}
+// ── Tab visibility & overflow dropdown ─────────────────────────────────────
+function ensureTabVisible(sessionId) {
+    if (visibleTabIds.includes(sessionId))
+        return;
+    if (visibleTabIds.length >= 3) {
+        const toHide = visibleTabIds.shift();
+        document.querySelector(`.tab[data-id="${toHide}"]`)?.classList.add('tab-hidden');
+    }
+    visibleTabIds.push(sessionId);
+    document.querySelector(`.tab[data-id="${sessionId}"]`)?.classList.remove('tab-hidden');
+}
+function refreshTabOverflow() {
+    const btn = $('#tab-overflow-btn');
+    if (!btn)
+        return;
+    const total = openTerminals.size;
+    const hiddenCount = total - visibleTabIds.length;
+    if (total <= 3) {
+        btn.classList.add('hidden');
+        return;
+    }
+    btn.classList.remove('hidden');
+    btn.textContent = `+${hiddenCount} ▾`;
+}
+function openTabOverflowDropdown() {
+    document.querySelector('.tab-overflow-dropdown')?.remove();
+    const btn = $('#tab-overflow-btn');
+    if (!btn)
+        return;
+    const rect = btn.getBoundingClientRect();
+    const dropdown = document.createElement('div');
+    dropdown.className = 'tab-overflow-dropdown';
+    openTerminals.forEach((entry, sessionId) => {
+        const isActive = sessionId === activeSessionId;
+        const name = entry.session?.name || entry.session?.shell || 'Session';
+        const item = document.createElement('button');
+        item.className = `tab-overflow-item${isActive ? ' active' : ''}`;
+        item.innerHTML = `<span class="tab-overflow-dot"></span><span class="tab-overflow-name">${escHtml(name)}</span><span class="tab-overflow-close-x" data-id="${sessionId}" title="Close">✕</span>`;
+        item.addEventListener('click', (e) => {
+            const closeX = e.target.closest('.tab-overflow-close-x');
+            if (closeX) {
+                dropdown.remove();
+                closeTab(closeX.dataset.id);
+                return;
+            }
+            dropdown.remove();
+            activateTab(sessionId);
+        });
+        dropdown.appendChild(item);
+    });
+    document.body.appendChild(dropdown);
+    const dRect = dropdown.getBoundingClientRect();
+    dropdown.style.top = `${rect.bottom + 4}px`;
+    dropdown.style.left = `${Math.max(4, rect.right - dRect.width)}px`;
+    const dismiss = (e) => {
+        if (!dropdown.contains(e.target) && e.target !== btn) {
+            dropdown.remove();
+            document.removeEventListener('pointerdown', dismiss, true);
+        }
+    };
+    setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 0);
 }
 // ── Enrollment modal ───────────────────────────────────────────────────────
 function openEnrollmentModal() {
@@ -1465,6 +1624,37 @@ $('#scroll-bottom-btn').addEventListener('click', () => {
     const entry = openTerminals.get(activeSessionId);
     if (entry)
         entry.term.scrollToBottom();
+});
+// Session overflow dropdown
+$('#tab-overflow-btn').addEventListener('click', () => {
+    if (document.querySelector('.tab-overflow-dropdown')) {
+        document.querySelector('.tab-overflow-dropdown').remove();
+    }
+    else {
+        openTabOverflowDropdown();
+    }
+});
+// Copy selected terminal text
+$('#copy-selection-btn').addEventListener('click', () => {
+    if (!activeSessionId)
+        return;
+    const entry = openTerminals.get(activeSessionId);
+    if (!entry)
+        return;
+    const sel = entry.term.getSelection();
+    if (sel)
+        copyText(sel, $('#copy-selection-btn'));
+    else
+        showToast('Select text first, then tap Copy', 'info', 2000);
+});
+// Paste from clipboard into terminal
+$('#paste-btn').addEventListener('click', () => {
+    if (!activeSessionId)
+        return;
+    navigator.clipboard.readText()
+        .then(text => { if (text)
+        sendTerminalInput(activeSessionId, text); })
+        .catch(() => showToast('Clipboard access denied', 'error', 2000));
 });
 // ── Command snippets ───────────────────────────────────────────────────────
 function loadSnippets() {
