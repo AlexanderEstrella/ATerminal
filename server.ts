@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 'use strict';
-Object.defineProperty(exports, "__esModule", { value: true });
+
 const { readServerConfig } = require('./src/config');
 const { startServer } = require('./src/server/index');
+
 startServer(readServerConfig()).catch((err) => {
-    console.error('Error:', err.message);
-    process.exit(1);
+  console.error('Error:', err.message);
+  process.exit(1);
 });

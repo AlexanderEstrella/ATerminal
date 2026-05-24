@@ -15,13 +15,16 @@
   },
   "main": "./src/index.js",
   "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.browser.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.browser.json --noEmit",
+    "prepare": "npm run build",
     "start": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup",
     "setup": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup",
     "setup:lan": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup --lan",
     "setup:cloudflare": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup --cloudflare",
     "setup:tailscale": "node --no-warnings=ExperimentalWarning bin/aterminal.js server setup --tailscale",
     "server:start": "node --no-warnings=ExperimentalWarning bin/aterminal.js server start",
-    "dev": "nodemon --exec \"node --no-warnings=ExperimentalWarning\" bin/aterminal.js server start"
+    "dev": "nodemon --watch bin --watch src --watch public/app.ts --ext ts,js,json --exec \"npm run build && node --no-warnings=ExperimentalWarning bin/aterminal.js server start\""
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -39,7 +42,13 @@
     "ws": "^8.17.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.9.1",
+    "@types/qrcode": "^1.5.6",
+    "@types/ws": "^8.18.1",
+    "nodemon": "^3.1.4",
+    "typescript": "^6.0.3"
   },
   "engines": {
     "node": ">=22.5.0"

@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Preserve",
+    "lib": ["ES2023", "DOM"],
+    "strict": false,
+    "noImplicitReturns": false,
+    "noFallthroughCasesInSwitch": true,
+    "noEmitOnError": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "public/app.ts",
+    "types/**/*.d.ts"
+  ]
+}

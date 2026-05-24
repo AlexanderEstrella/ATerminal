@@ -76,6 +76,26 @@ aterminal server setup --public-url https://terminal.yourdomain.com
 3. Scan the **Send Web UI Link** QR or copy the link to your phone.
 4. On iPhone: tap the share button → **Add to Home Screen** to install as a PWA.
 
+## Push Notifications (ntfy)
+
+Get a phone notification when a terminal session exits. Uses [ntfy](https://ntfy.sh) — free, open source, no account needed for public topics.
+
+Install the ntfy app on your phone, then run:
+
+```bash
+aterminal server set-ntfy https://ntfy.sh/your-private-topic
+```
+
+Use a hard-to-guess topic name — it's the only secret. For auth-protected topics:
+
+```bash
+aterminal server set-ntfy https://ntfy.sh/your-topic --token your-access-token
+```
+
+To disable: `aterminal server set-ntfy --disable`
+
+For maximum privacy, run a [self-hosted ntfy server](https://docs.ntfy.sh/install/).
+
 ## Connect An Agent (Another Machine)
 
 An **agent** is ATerminal running on a second machine — the one that hosts the shell sessions you see in the UI. Your local machine is auto-enrolled on first run. Only follow this section to add a second machine.

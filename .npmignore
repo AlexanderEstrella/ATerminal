@@ -1,10 +1,13 @@
-.agent/
-logs/
 node_modules/
+logs/
 .env
 .env.*
 !.env.example
+.agent/
 *.db
 *.db-shm
 *.db-wal
 npm-debug.log*
+tsconfig*.json
+**/*.ts
+!**/*.d.ts
