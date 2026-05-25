@@ -8,6 +8,13 @@ ATerminal is a self-hosted terminal server that runs on your machine and exposes
 
 - [Node.js](https://nodejs.org) 22+
 - [Tailscale](https://tailscale.com/download) installed and logged in (recommended for phone access)
+- Native build tools for `node-pty` (pre-installed on most machines — only needed if `npm install` fails):
+
+  | Platform | Fix |
+  |----------|-----|
+  | macOS | `xcode-select --install` |
+  | Ubuntu/Debian | `sudo apt install build-essential python3` |
+  | Windows | Install "Desktop development with C++" from the [Visual Studio installer](https://visualstudio.microsoft.com/downloads/) |
 
 ## Setup
 
