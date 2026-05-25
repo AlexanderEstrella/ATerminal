@@ -4,6 +4,7 @@ logs/
 .env.*
 !.env.example
 .agent/
+.agent/**
 *.db
 *.db-shm
 *.db-wal

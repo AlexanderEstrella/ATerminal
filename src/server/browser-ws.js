@@ -86,6 +86,17 @@ function createBrowserWs(httpServer, db, config, agentGateway, audit) {
             }
             audit.log('terminal_input', socket.user.username, { sessionId, bytes: data ? data.length : 0 });
         });
+        socket.on('terminal:interrupt', ({ sessionId } = {}) => {
+            const session = getSession(db, sessionId);
+            if (!session || !canAccessSession(socket.user, session) || session.status !== 'active')
+                return;
+            const agentId = agentGateway.getAgentForSession(sessionId);
+            if (agentId) {
+                agentGateway.sendToAgent(agentId, { type: 'input', sessionId, data: '\x03' });
+                agentGateway.notifySessionStopped(sessionId, 'received Ctrl+C');
+            }
+            audit.log('terminal_interrupt', socket.user.username, { sessionId });
+        });
         // terminal:resize — forward terminal resize to the agent
         socket.on('terminal:resize', ({ sessionId, cols, rows } = {}) => {
             const session = getSession(db, sessionId);
@@ -280,6 +291,7 @@ function createApiRouter(db, config, agentGateway, audit) {
         if (agentId) {
             agentGateway.sendToAgent(agentId, { type: 'kill', sessionId });
         }
+        agentGateway.notifySessionStopped(sessionId, 'was terminated by user');
         endSession(db, sessionId);
         agentGateway.removeSession(sessionId);
         audit.log('session_killed', req.user.username, { sessionId, agentId });

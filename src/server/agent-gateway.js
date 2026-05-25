@@ -4,7 +4,7 @@ const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { getAgent, markAgentOnline, markAgentOffline, endSession } = require('../db');
-const { notifySessionExit } = require('./ntfy');
+const { notifySessionExit, notifySessionStopped } = require('./ntfy');
 const VALID_SHELLS = new Set(['powershell', 'cmd', 'wsl', 'bash', 'zsh', 'sh', 'fish']);
 const PING_INTERVAL_MS = 30_000;
 const PONG_TIMEOUT_MS = 10_000;
@@ -21,6 +21,8 @@ function createAgentGateway(httpServer, db, config, audit) {
     // sessionId -> { chunks: string[], bytes: number }
     const sessionOutputBuffers = new Map();
     const MAX_BUFFER_BYTES = 500 * 1024;
+    // sessionId -> start timestamp (ms), set on first output from the PTY
+    const sessionStartTimes = new Map();
     let agentBroadcaster = null;
     wss.on('connection', (ws, req) => {
         const authHeader = req.headers.authorization || '';
@@ -114,11 +116,18 @@ function createAgentGateway(httpServer, db, config, audit) {
                             sessionName = row.name;
                     }
                     catch (_) { }
+                    const startTime = sessionStartTimes.get(msg.sessionId);
+                    const durationMs = startTime ? Date.now() - startTime : undefined;
+                    sessionStartTimes.delete(msg.sessionId);
                     try {
                         endSession(db, msg.sessionId);
                     }
                     catch (_) { }
-                    notifySessionExit(sessionName, msg.code ?? -1, config?.ntfy);
+                    notifySessionExit(sessionName, msg.code ?? -1, config?.ntfy, {
+                        hostname: agent.hostname,
+                        durationMs,
+                        lastLine: getLastOutputLine(msg.sessionId),
+                    });
                     for (const cbs of getSessionCallbacks(msg.sessionId).values()) {
                         cbs.onExit(msg.code);
                     }
@@ -225,7 +234,11 @@ function createAgentGateway(httpServer, db, config, audit) {
     function removeSession(sessionId) {
         sessionAgentMap.delete(sessionId);
         sessionBrowserCbs.delete(sessionId);
+        sessionStartTimes.delete(sessionId);
         // Keep recent output available for ended-session context until process restart.
+    }
+    function notifySessionStoppedById(sessionId, reason) {
+        notifySessionStopped(getSessionName(sessionId), reason, config?.ntfy);
     }
     function getAgentForSession(sessionId) {
         return sessionAgentMap.get(sessionId);
@@ -248,6 +261,8 @@ function createAgentGateway(httpServer, db, config, audit) {
             return;
         if (!sessionOutputBuffers.has(sessionId)) {
             sessionOutputBuffers.set(sessionId, { chunks: [], bytes: 0 });
+            if (!sessionStartTimes.has(sessionId))
+                sessionStartTimes.set(sessionId, Date.now());
         }
         const buffer = sessionOutputBuffers.get(sessionId);
         buffer.chunks.push(data);
@@ -265,8 +280,30 @@ function createAgentGateway(httpServer, db, config, audit) {
     function getSessionCallbacks(sessionId) {
         return sessionBrowserCbs.get(sessionId) || new Map();
     }
+    function getLastOutputLine(sessionId) {
+        const chunks = getOutputBuffer(sessionId);
+        if (!chunks.length)
+            return undefined;
+        const raw = chunks.join('').slice(-500);
+        // Strip ANSI escape sequences and carriage returns
+        const clean = raw
+            .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+            .replace(/\x1b\][^\x07]*\x07/g, '')
+            .replace(/\r/g, '');
+        const lines = clean.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+        return lines[lines.length - 1]?.slice(0, 120) || undefined;
+    }
     function setBroadcaster(fn) {
         agentBroadcaster = fn;
+    }
+    function getSessionName(sessionId) {
+        try {
+            const row = db.prepare('SELECT name, shell FROM sessions WHERE id = ?').get(sessionId);
+            return row?.name || row?.shell || sessionId;
+        }
+        catch (_) {
+            return sessionId;
+        }
     }
     function reconcileAgentSessions(agentId, sessionIds) {
         if (!Array.isArray(sessionIds))
@@ -316,6 +353,7 @@ function createAgentGateway(httpServer, db, config, audit) {
         disconnectAgent,
         getOutputBuffer,
         setBroadcaster,
+        notifySessionStopped: notifySessionStoppedById,
     };
 }
 module.exports = { createAgentGateway };

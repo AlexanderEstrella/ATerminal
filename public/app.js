@@ -545,7 +545,7 @@ function updateWatchButton() {
 }
 function showTerminalContextMenu(x, y, term, sessionId) {
     document.querySelector('.term-context-menu')?.remove();
-    const sel = term.getSelection();
+    const sel = getTerminalSelection(term);
     const menu = document.createElement('div');
     menu.className = 'term-context-menu';
     const copyBtn = document.createElement('button');
@@ -561,7 +561,8 @@ function showTerminalContextMenu(x, y, term, sessionId) {
     menu.style.left = `${Math.min(x, window.innerWidth - 160)}px`;
     menu.style.top = `${Math.min(y, window.innerHeight - 80)}px`;
     document.body.appendChild(menu);
-    copyBtn.addEventListener('click', () => { copyText(sel); menu.remove(); });
+    copyBtn.addEventListener('click', () => { if (sel)
+        copyText(sel); menu.remove(); });
     pasteBtn.addEventListener('click', () => {
         navigator.clipboard.readText()
             .then(text => { if (text)
@@ -576,6 +577,9 @@ function showTerminalContextMenu(x, y, term, sessionId) {
         }
     };
     setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 0);
+}
+function getTerminalSelection(term) {
+    return term?.getSelection?.() || term?._aterminalLastSelection || '';
 }
 function copyTerminalOutput() {
     if (!activeSessionId)
@@ -594,6 +598,57 @@ function copyTerminalOutput() {
     while (lines.length > 0 && !lines[lines.length - 1].trim())
         lines.pop();
     copyText(lines.join('\n'), $('#session-context-copy-output'));
+}
+function terminalBufferToText(term) {
+    const buf = term?.buffer?.active;
+    if (!buf)
+        return '';
+    const lines = [];
+    for (let i = 0; i < buf.length; i++) {
+        const line = buf.getLine(i);
+        if (line)
+            lines.push(line.translateToString(true));
+    }
+    while (lines.length > 0 && !lines[lines.length - 1].trim())
+        lines.pop();
+    return cleanTerminalText(lines.join('\n'));
+}
+function cleanTerminalText(text) {
+    return String(text || '')
+        .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+        .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+function openTerminalTextView(term) {
+    document.querySelector('.terminal-text-view')?.remove();
+    const text = terminalBufferToText(term);
+    if (!text) {
+        showToast('No terminal output to copy yet.', 'info', 2000);
+        return;
+    }
+    const modal = document.createElement('div');
+    modal.className = 'modal terminal-text-view';
+    modal.innerHTML = `
+    <div class="modal-backdrop"></div>
+    <div class="modal-card terminal-text-modal">
+      <h3>Terminal Text</h3>
+      <textarea class="terminal-text-output" readonly></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost terminal-text-close">Close</button>
+        <button type="button" class="btn btn-primary terminal-text-copy">Copy All</button>
+      </div>
+    </div>
+  `;
+    document.body.appendChild(modal);
+    const output = modal.querySelector('.terminal-text-output');
+    output.value = text;
+    output.focus();
+    output.select();
+    modal.querySelector('.modal-backdrop').addEventListener('click', () => modal.remove());
+    modal.querySelector('.terminal-text-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('.terminal-text-copy').addEventListener('click', () => copyText(output.value, modal.querySelector('.terminal-text-copy')));
 }
 function copyCurrentSessionContext() {
     if (!activeSessionId)
@@ -626,7 +681,7 @@ function sendTerminalInput(sessionId, data) {
         showToast('Terminal is disconnected. Reconnecting...', 'offline');
         return false;
     }
-    socket.emit('terminal:input', { sessionId, data });
+    socket.emit(data === '\x03' ? 'terminal:interrupt' : 'terminal:input', { sessionId, data });
     return true;
 }
 function openNewSessionModal() {
@@ -1115,12 +1170,17 @@ function openSession(session) {
     term.registerLinkProvider(makeLocalhostLinkProvider(term));
     term.loadAddon(linksAddon);
     term.open(pane);
+    term.onSelectionChange(() => {
+        const sel = term.getSelection();
+        if (sel)
+            term._aterminalLastSelection = sel;
+    });
     // Ctrl+Shift+C = copy selection, Ctrl+Shift+V = paste from clipboard
     term.attachCustomKeyEventHandler((e) => {
         if (e.type !== 'keydown')
             return true;
         if (e.ctrlKey && e.shiftKey && e.key === 'C') {
-            const sel = term.getSelection();
+            const sel = getTerminalSelection(term);
             if (sel)
                 copyText(sel);
             return false;
@@ -1626,7 +1686,7 @@ $('#scroll-bottom-btn').addEventListener('click', () => {
         entry.term.scrollToBottom();
 });
 // Session overflow dropdown
-$('#tab-overflow-btn').addEventListener('click', () => {
+$('#tab-overflow-btn')?.addEventListener('click', () => {
     if (document.querySelector('.tab-overflow-dropdown')) {
         document.querySelector('.tab-overflow-dropdown').remove();
     }
@@ -1635,20 +1695,27 @@ $('#tab-overflow-btn').addEventListener('click', () => {
     }
 });
 // Copy selected terminal text
-$('#copy-selection-btn').addEventListener('click', () => {
+$('#copy-selection-btn')?.addEventListener('click', () => {
     if (!activeSessionId)
         return;
     const entry = openTerminals.get(activeSessionId);
     if (!entry)
         return;
-    const sel = entry.term.getSelection();
+    const sel = getTerminalSelection(entry.term);
     if (sel)
         copyText(sel, $('#copy-selection-btn'));
     else
-        showToast('Select text first, then tap Copy', 'info', 2000);
+        openTerminalTextView(entry.term);
+});
+$('#text-output-btn')?.addEventListener('click', () => {
+    if (!activeSessionId)
+        return;
+    const entry = openTerminals.get(activeSessionId);
+    if (entry)
+        openTerminalTextView(entry.term);
 });
 // Paste from clipboard into terminal
-$('#paste-btn').addEventListener('click', () => {
+$('#paste-btn')?.addEventListener('click', () => {
     if (!activeSessionId)
         return;
     navigator.clipboard.readText()
